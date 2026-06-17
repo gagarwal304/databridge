@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:goteleport.com)",
+      "WebFetch(domain:www.opencoreventures.com)",
+      "WebFetch(domain:pivotnine.com)",
+      "WebFetch(domain:www.getmonetizely.com)",
+      "WebFetch(domain:www.revenera.com)",
+      "WebFetch(domain:medium.com)",
+      "WebFetch(domain:promethium.ai)",
+      "WebFetch(domain:deepsense.ai)",
+      "WebFetch(domain:ucbepic.github.io)",
+      "WebFetch(domain:motherduck.com)",
+      "WebFetch(domain:www.vldb.org)",
+      "WebFetch(domain:www.accelirate.com)",
+      "WebFetch(domain:www.cdata.com)",
+      "WebFetch(domain:arxiv.org)",
+      "WebFetch(domain:www.globenewswire.com)",
+      "WebFetch(domain:getlatka.com)",
+      "WebFetch(domain:openreview.net)",
+      "WebFetch(domain:www.getwren.ai)",
+      "WebFetch(domain:hasura.io)",
+      "Bash(gh api *)",
+      "WebFetch(domain:promptql.io)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:research.aimultiple.com)",
+      "WebFetch(domain:aclanthology.org)",
+      "WebFetch(domain:roundup.getdbt.com)",
+      "Bash(conda activate *)",
+      "Bash(pytest tests/ -q)",
+      "Bash(conda run *)"
+    ]
+  }
+}
