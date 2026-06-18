@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import sys
 from typing import Any
 
 import mcp.types as mcp_types
@@ -57,6 +59,15 @@ def create_server(config: DatabridgeConfig) -> FastMCP:
     )
 
     mcp = FastMCP(config.mcp_server_name)
+
+    _orig_stdio = mcp.run_stdio_async
+
+    async def _run_stdio_with_connect() -> None:
+        await registry.connect_all()
+        print(f"DataBridge: connected to {list(registry.aliases())}", file=sys.stderr)
+        await _orig_stdio()
+
+    mcp.run_stdio_async = _run_stdio_with_connect  # type: ignore[method-assign]
 
     # ── db_query ──────────────────────────────────────────────────────────────
     @mcp.tool()

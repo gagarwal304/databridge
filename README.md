@@ -24,14 +24,17 @@ Current AI agents fail at this in four specific ways:
 
 ### The Evidence
 
-DataAgentBench (UC Berkeley + Hasura, 2026) tests agents on 54 realistic queries across 12 real-world datasets spanning PostgreSQL, MongoDB, SQLite, and DuckDB:
+DataAgentBench tests agents on 54 realistic queries across 12 real-world datasets spanning PostgreSQL, MongoDB, SQLite, and DuckDB:
 
 | System | DAB Pass@1 |
 |---|---|
-| **DataBridge + GLM-5.1** | **61.1%** |
-| MinusX + Claude Sonnet 4.6 + GPT-5.5-mini + Claude Haiku 4.5 | 63.1% |
+| **DataBridge + GLM-5.2** | **TBD%** |
+| MinusX + Claude Sonnet 4.6 + GPT-5.5-mini + Claude Haiku 4.5 | 65.2% |
 | Altimate Code + GPT-5.5 + Claude Sonnet 4.6 | 63.1% |
-| Spacedock (Recce) + Claude Opus 4.8 | 65.5% |
+| Spacedock (Recce) + Claude Opus 4.8 | 67.2% |
+| Altimate Code + Claude Sonnet 4.6 | 68.2% |
+| Altimate Code + Claude Sonnet 4.6 | 68.2% |
+| Altimate Code + GPT-5.5 + Claude Sonnet 4.6 | 71.7% |
 
 DataBridge with a significantly lower cost model matches frontier models
 
@@ -62,20 +65,15 @@ Agent receives: the answer, not the data engineering problem.
 
 ### Universal Connection
 
-Connect once. Query anything.
+Connect any combination of databases by listing their URIs in a single environment variable — comma-separated, no config files required.
 
-**Supported databases:**
-- PostgreSQL
-- MongoDB
-- SQLite
-- DuckDB
+**Supported databases:** PostgreSQL · MongoDB · SQLite · DuckDB
 
-```bash
-databridge connect --uri "postgresql://user:pass@host:5432/db"
-databridge connect --uri "mongodb://localhost:27017/mydb"
-databridge connect --uri "sqlite:///path/to/file.db"
-databridge connect --uri "duckdb:///path/to/file.duckdb"
 ```
+DATABRIDGE_DATABASE_URIS=postgresql://user:pass@localhost:5432/mydb,sqlite:////absolute/path/to/file.db
+```
+
+Pass it in your MCP client config, in a `.env` file, or directly in the shell. SQLite and DuckDB paths must be absolute (4 slashes: `sqlite:////`).
 
 ---
 
@@ -272,9 +270,59 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (Mac) and
 }
 ```
 
-Restart Claude Desktop. DataBridge will scan your schema on first use and cache it for subsequent sessions.
+Restart Claude Desktop. DataBridge scans your schema on first use and caches it for subsequent sessions.
 
 Multiple databases are comma-separated in `DATABRIDGE_DATABASE_URIS`. SQLite paths must be absolute (4 slashes: `sqlite:////`).
+
+---
+
+### See it in action
+
+Once connected, ask Claude a natural language question that spans your databases. DataBridge handles the rest:
+
+> *"Which decade of publication has the highest average rating among detailed reviews?"*
+
+```
+Claude calls db_connections  → PostgreSQL + SQLite live
+Claude calls db_schema       → finds books_info (PostgreSQL), review (SQLite)
+Claude calls db_query        → samples rows, discovers publication dates are prose text
+                               in details field ("May 8, 2012") and join is purchase_id ↔ book_id
+Claude calls db_query        → extracts years via regex, joins tables, aggregates ratings by decade
+Claude answers               → "The 1990s has the highest average rating at 4.32"
+```
+
+No connection strings in the prompt. No schema explanation needed. No JOIN syntax across database engines.
+
+---
+
+### Database Hints (Benchmark)
+
+When running the benchmark, DataBridge reads a `db_description.txt` (or `db_description_withhint.txt`) from each dataset directory and prepends it to the query context — useful for non-obvious join relationships or column semantics the model can't infer from schema alone.
+
+This is a planned feature for the hosted MCP server. [Join the waitlist →](https://gaviventures.com)
+
+---
+
+## Getting to 100% Accuracy
+
+DataBridge out of the box handles schema discovery, join detection, and query planning automatically. But for production use on your specific data, accuracy improves significantly with a few targeted tuning steps:
+
+**1. Confirm or correct join relationships**
+Auto-discovery finds joins based on column name similarity and value sampling, but it can miss non-obvious relationships (e.g. `purchase_id` ↔ `book_id`) or propose false positives. Ask Claude to call `db_joins` to list all discovered candidates — it will show each join with its confidence score and transform. Tell Claude to confirm joins that are correct (`confirm=<join_id>`) or reject ones that aren't (`reject=<join_id>`). Confirmed joins are shown to the model in every subsequent query as trusted facts, eliminating the need to re-discover them.
+
+**2. Add database hints**
+Document non-obvious relationships, column semantics, and business logic in plain text. Examples: which ID fields map across databases, what free-text columns contain embedded dates, what enum values mean. The model uses this context on every query.
+
+**3. Normalize your data**
+Inconsistent ID formats (`12345` vs `"CUST-0012345"`), missing foreign keys, nulls in join columns, and mixed date formats all reduce accuracy. The closer your schema is to clean relational data, the better the results.
+
+**4. Add ontology and lookup tables**
+Queries that require domain knowledge — category hierarchies, code-to-name mappings, status enumerations — benefit from explicit lookup tables the model can join against rather than having to infer meaning from raw codes.
+
+**5. Tune the query context**
+For schemas with many tables, explicitly describing which tables are relevant for which query types reduces the model's search space and improves answer quality.
+
+Need help setting this up for your databases? Write to [hello@gaviventures.com](mailto:hello@gaviventures.com) — we'll help you configure DataBridge for your specific schema.
 
 ---
 
@@ -284,10 +332,13 @@ DataBridge is built to be measured. We run against DataAgentBench on every relea
 
 | System | DAB Pass@1 |
 |---|---|
-| **DataBridge + GLM-5.1** | **61.1%** |
-| MinusX + Claude Sonnet 4.6 + GPT-5.5-mini + Claude Haiku 4.5 | 63.1% |
+| **DataBridge + GLM-5.2** | **TBD%** |
+| MinusX + Claude Sonnet 4.6 + GPT-5.5-mini + Claude Haiku 4.5 | 65.2% |
 | Altimate Code + GPT-5.5 + Claude Sonnet 4.6 | 63.1% |
-| Spacedock (Recce) + Claude Opus 4.8 | 65.5% |
+| Spacedock (Recce) + Claude Opus 4.8 | 67.2% |
+| Altimate Code + Claude Sonnet 4.6 | 68.2% |
+| Altimate Code + Claude Sonnet 4.6 | 68.2% |
+| Altimate Code + GPT-5.5 + Claude Sonnet 4.6 | 71.7% |
 
 
 Reproducible eval scripts are in `/benchmark`. See [TESTING.md](TESTING.md) for full instructions.

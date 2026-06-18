@@ -10,3 +10,5 @@ build/
 benchmark/results/
 DataAgentBench/
 databridge_backup/
+.claude
+.DS_STORE

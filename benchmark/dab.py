@@ -562,7 +562,6 @@ class DABEvaluator:
         from databridge.audit.log import AuditLog
         from databridge.connectors.registry import ConnectorRegistry
         from databridge.engine import DataBridgeEngine
-        from databridge.learning.session import SessionLearner
         from databridge.query.executor import QueryExecutor
         from databridge.query.planner import QueryPlanner
         from databridge.query.translator import QueryTranslator
@@ -627,6 +626,15 @@ class DABEvaluator:
             cache_dir = Path(f"~/.databridge/bench_{dataset_name}").expanduser()
             cache_dir.mkdir(parents=True, exist_ok=True)
 
+            # On run 0, clear stale join cache so each submission round starts
+            # with a clean discovery pass. Agent-loop joins from prior runs can
+            # corrupt the registry with false-positive joins that mislead the model.
+            if self._run == 0:
+                joins_db = cache_dir / "joins.db"
+                if joins_db.exists():
+                    joins_db.unlink()
+                    log.info("Run 0: cleared join cache for '%s' (fresh discovery)", dataset_name)
+
             registry = ConnectorRegistry.from_uris(uris)
             try:
                 await registry.connect_all()
@@ -655,7 +663,6 @@ class DABEvaluator:
             executor = QueryExecutor(registry, enforcer, translator, 10_000)
             checker = PlausibilityChecker()
             audit = AuditLog(cache_dir / "audit.db")
-            learner = SessionLearner(join_registry)
             discovery = JoinDiscovery(registry)
 
             engine = DataBridgeEngine(
@@ -666,7 +673,7 @@ class DABEvaluator:
                 join_registry=join_registry,
                 checker=checker,
                 audit=audit,
-                learner=learner,
+                learner=None,
                 discovery=discovery,
             )
 
@@ -696,31 +703,6 @@ class DABEvaluator:
                     len(existing_joins), dataset_name,
                 )
 
-            # Promote agent-loop joins: those saved during previous runs start at
-            # confidence 0.60-0.65, below the schema-context display threshold
-            # (0.80-0.85). Run value sampling on them now — same verification as
-            # full discovery — so confirmed ones appear in the schema context.
-            all_joins = await join_registry.get_all()
-            to_verify = [
-                r for r in all_joins
-                if not r.confirmed
-                and r.confidence < 0.80
-                and r.table_a not in ("", "unknown")
-                and r.table_b not in ("", "unknown")
-            ]
-            if to_verify:
-                log.info("Verifying %d agent-loop join(s) via sampling…", len(to_verify))
-                try:
-                    verified = await discovery.verify_rules(to_verify)
-                    for rule, confidence, transform in verified:
-                        rule.confidence = confidence
-                        rule.transform = transform
-                        rule.verified_at = time.time()
-                        rule.verified_by = "sampling"
-                        await join_registry.save(rule)
-                    log.info("  → %d/%d join(s) promoted via sampling", len(verified), len(to_verify))
-                except Exception as e:
-                    log.warning("Agent-loop join verification failed: %s", e)
 
             # Sample 2 rows per table so the schema context shows real data formats.
             # This lets the model know column formats (e.g. date text in "details")
@@ -799,6 +781,57 @@ class DABEvaluator:
             await registry.disconnect_all()
             _log_dataset_summary(dataset_name)
 
+            # Write both the submission file and a partial debug report after each
+            # dataset so a crash mid-run doesn't lose results already collected.
+            _model_slug_inc = self._model.replace("/", "-")
+            _ds_tag_inc = (
+                self._dataset if isinstance(self._dataset, str)
+                else ("official" if isinstance(self._dataset, list) and set(self._dataset) == OFFICIAL_DATASETS else "custom")
+                if self._dataset else "all"
+            )
+
+            # Partial debug report — cumulative, overwritten after each dataset
+            _partial_total = len(results)
+            _partial_passed = sum(1 for r in results if r.passed)
+            _partial_errors = sum(1 for r in results if r.error)
+            _partial_ds_stats: dict[str, float] = {}
+            for _ds in set(r.dataset for r in results):
+                _ds_rs = [r for r in results if r.dataset == _ds]
+                _partial_ds_stats[_ds] = sum(1 for r in _ds_rs if r.passed) / len(_ds_rs)
+            _partial_report = BenchmarkReport(
+                provider=self._provider,
+                model=self._model,
+                total=_partial_total,
+                passed=_partial_passed,
+                failed=_partial_total - _partial_passed - _partial_errors,
+                errors=_partial_errors,
+                pass_at_1=_partial_passed / _partial_total if _partial_total else 0.0,
+                datasets=_partial_ds_stats,
+                results=results,
+            )
+            _partial_path = self._results_dir / f"dab_{self._provider}_{_model_slug_inc}_{_ds_tag_inc}_run{self._run}_partial.json"
+            _partial_path.write_text(json.dumps(asdict(_partial_report), indent=2, default=str))
+
+            _sub_path = self._results_dir / f"submission_{_model_slug_inc}.json"
+            _existing: list[dict] = []
+            if _sub_path.exists():
+                try:
+                    _existing = json.loads(_sub_path.read_text())
+                except Exception:
+                    _existing = []
+            _entries = {(e["dataset"], e["query"], e["run"]): e for e in _existing}
+            _run_str = str(self._run)
+            for r in results:
+                _entries[(r.dataset.lower(), r.query_id.removeprefix("query"), _run_str)] = {
+                    "dataset": r.dataset.lower(),
+                    "query": r.query_id.removeprefix("query"),
+                    "run": _run_str,
+                    "answer": r.answer,
+                }
+            _sub_path.write_text(
+                json.dumps(sorted(_entries.values(), key=lambda e: (e["dataset"], e["query"], e["run"])), indent=2)
+            )
+
         # Aggregate
         total = len(results)
         passed_count = sum(1 for r in results if r.passed)
@@ -840,7 +873,7 @@ class DABEvaluator:
         # Required shape: [{"dataset": str, "query": str, "run": str, "answer": str}, ...]
         submission_path = (
             self._results_dir
-            / f"submission_{self._model.replace('/', '-')}_{_ds_tag}.json"
+            / f"submission_{self._model.replace('/', '-')}.json"
         )
         submission_entries: list[dict] = []
         if submission_path.exists():

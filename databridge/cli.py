@@ -42,7 +42,8 @@ def serve(
 
     cfg = get_config()
     server = create_server(cfg)
-    console.print(f"[green]DataBridge MCP server starting ({cfg.mcp_server_name})[/green]")
+    import sys
+    print(f"DataBridge MCP server starting ({cfg.mcp_server_name})", file=sys.stderr)
     server.run()
 
 
@@ -217,7 +218,7 @@ def benchmark(
     import logging
     import os
     from pathlib import Path
-    from benchmark.dab import DABEvaluator, OFFICIAL_DATASETS
+    from benchmark.dab import DABEvaluator, OFFICIAL_DATASETS, OFFICIAL_DATASET_ORDER
 
     # Always keep third-party libraries quiet; only elevate our own loggers.
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
@@ -274,7 +275,8 @@ def benchmark(
         console.print(f"\n[bold]{report.summary}[/bold]")
 
         ds_table = Table("Dataset", "Pass@1", "Passed", "Total")
-        for ds, rate in sorted(report.datasets.items()):
+        _order = {name: i for i, name in enumerate(OFFICIAL_DATASET_ORDER)}
+        for ds, rate in sorted(report.datasets.items(), key=lambda kv: (_order.get(kv[0], 999), kv[0])):
             ds_results = [r for r in report.results if r.dataset == ds]
             ds_pass = sum(1 for r in ds_results if r.passed)
             ds_table.add_row(ds, f"{rate:.1%}", str(ds_pass), str(len(ds_results)))

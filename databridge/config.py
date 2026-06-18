@@ -2,10 +2,24 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings.sources.providers.env import EnvSettingsSource
+
+
+class _CommaListEnvSource(EnvSettingsSource):
+    """pydantic-settings v2 tries json.loads() on list[str] fields before
+    our field_validator runs. Override decode_complex_value so that a
+    plain comma-separated string is split here instead of failing."""
+
+    _COMMA_FIELDS = {"database_uris", "hidden_tables"}
+
+    def decode_complex_value(self, field_name: str, field: Any, value: Any) -> Any:
+        if field_name in self._COMMA_FIELDS and isinstance(value, str) and not value.startswith("["):
+            return [v.strip() for v in value.split(",") if v.strip()]
+        return super().decode_complex_value(field_name, field, value)
 
 
 class DatabridgeConfig(BaseSettings):
@@ -15,6 +29,15 @@ class DatabridgeConfig(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @classmethod
+    def settings_customise_sources(cls, settings_cls, init_settings, env_settings, dotenv_settings, file_secret_settings):
+        return (
+            init_settings,
+            _CommaListEnvSource(settings_cls),
+            dotenv_settings,
+            file_secret_settings,
+        )
 
     # ── Connections ──────────────────────────────────────────────────────────
     database_uris: list[str] = Field(default_factory=list)

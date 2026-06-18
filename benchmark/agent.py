@@ -886,34 +886,12 @@ _MATH_SANDBOX: dict = {
 
 
 def _safe_eval(expression: str, variables: dict | None = None) -> dict:
-    """Evaluate a Python math expression or multi-line code block in a restricted sandbox.
-
-    Single-line: eval() — the expression result is returned directly.
-    Multi-line:  exec() — the code MUST assign the final answer to a variable named `result`.
-    """
+    """Evaluate a Python math expression in a restricted sandbox."""
     # Merge into globals (not locals) so comprehensions can see variables.
     # Comprehensions create their own scope that only inherits from globals.
     globs: dict = {"__builtins__": {}, **_MATH_SANDBOX}
     if variables:
         globs.update(variables)
-
-    is_multiline = "\n" in expression.strip()
-
-    if is_multiline:
-        local_vars: dict = {}
-        try:
-            exec(compile(expression, "<math_compute>", "exec"), globs, local_vars)
-        except Exception as e:
-            return {"error": str(e)}
-        if "result" not in local_vars:
-            return {
-                "error": (
-                    "Multi-line code block must assign the final answer to a variable named 'result'. "
-                    "Example: result = sum(r['count'] for r in rows if r['type'] == 'A')"
-                )
-            }
-        return {"result": local_vars["result"]}
-
     try:
         result = eval(compile(expression, "<math_compute>", "eval"), globs)
         return {"result": result}
@@ -921,10 +899,10 @@ def _safe_eval(expression: str, variables: dict | None = None) -> dict:
         return {
             "error": (
                 f"SyntaxError: {e}. "
-                "For a single expression: use nested constructs (sum(...), [f(x) for x in v])."
-                " For multi-statement code: write each statement on a separate line and assign"
-                " the final answer to `result` (e.g. result = my_computed_value)."
-                " For chi-square, use operation='chi_square' instead."
+                "expression must be a single eval()-compatible Python expression — "
+                "no assignments (x = ...), no semicolons, no multi-statement blocks. "
+                "Use nested constructs instead: sum(...), [f(x) for x in vals], "
+                "(a if cond else b). For chi-square, use operation='chi_square' instead."
                 " For EMA, use operation='ema' instead."
             )
         }
@@ -1103,15 +1081,7 @@ class ToolExecutor:
                     if isinstance(sq, str):
                         try:
                             sq = json.loads(sq)
-                        except json.JSONDecodeError:
-                            pass
-                    # Handle double-encoded list: ["[{...}]"] → [{...}]
-                    if isinstance(sq, list) and len(sq) == 1 and isinstance(sq[0], str):
-                        try:
-                            parsed = json.loads(sq[0])
-                            if isinstance(parsed, list):
-                                sq = parsed
-                        except json.JSONDecodeError:
+                        except (json.JSONDecodeError, ValueError):
                             pass
                     spec = {"sub_queries": sq}
                     if arguments.get("join_on"):
@@ -1123,6 +1093,44 @@ class ToolExecutor:
                     raw_q = arguments.get("query", "")
                     if isinstance(raw_q, dict):
                         raw_q = json.dumps(raw_q)
+                # Normalize any JSON-string-encoded sub_queries regardless of which branch ran.
+                # Handles: ["[{...}]"] or ["{...}", "{...}"] → [{...}, {...}]
+                if raw_q.strip().startswith("{"):
+                    try:
+                        _spec = json.loads(raw_q)
+                        if "sub_queries" in _spec and isinstance(_spec["sub_queries"], list):
+                            _fixed = []
+                            _changed = False
+                            _has_bad_string = False
+                            for _item in _spec["sub_queries"]:
+                                if isinstance(_item, str):
+                                    try:
+                                        _decoded = json.loads(_item)
+                                        if isinstance(_decoded, list):
+                                            _fixed.extend(_decoded)
+                                        elif isinstance(_decoded, dict):
+                                            _fixed.append(_decoded)
+                                        else:
+                                            _fixed.append(_item)
+                                        _changed = True
+                                    except (json.JSONDecodeError, ValueError):
+                                        _has_bad_string = True
+                                        _fixed.append(_item)
+                                else:
+                                    _fixed.append(_item)
+                            if _has_bad_string:
+                                result = json.dumps({
+                                    "error": (
+                                        "sub_queries must be a JSON array of objects, not an array of strings. "
+                                        "Each element must be {\"db\": \"...\", \"query\": \"...\", \"key\": \"...\"}. "
+                                        "Do NOT wrap the array in quotes or nest it inside another list."
+                                    )
+                                })
+                            elif _changed:
+                                _spec["sub_queries"] = _fixed
+                                raw_q = json.dumps(_spec)
+                    except (json.JSONDecodeError, ValueError):
+                        pass
                 dbs = arguments.get("databases")
                 is_spec = raw_q.strip().startswith("{")
                 # Guard: cannot run a single SQL query against multiple databases.
@@ -1174,15 +1182,7 @@ class ToolExecutor:
                         if isinstance(_sq, str):
                             try:
                                 _sq = json.loads(_sq)
-                            except json.JSONDecodeError:
-                                pass
-                        # Handle double-encoded list: ["[{...}]"] → [{...}]
-                        if isinstance(_sq, list) and len(_sq) == 1 and isinstance(_sq[0], str):
-                            try:
-                                parsed = json.loads(_sq[0])
-                                if isinstance(parsed, list):
-                                    _sq = parsed
-                            except json.JSONDecodeError:
+                            except (json.JSONDecodeError, ValueError):
                                 pass
                         _spec: dict = {"sub_queries": _sq}
                         if arguments.get("join_on"):
@@ -1192,6 +1192,33 @@ class ToolExecutor:
                         raw_q = arguments["query"]
                         if isinstance(raw_q, dict):
                             raw_q = json.dumps(raw_q)
+                    # Normalize JSON-string-encoded sub_queries (same fix as db_query)
+                    if raw_q.strip().startswith("{"):
+                        try:
+                            _mspec = json.loads(raw_q)
+                            if "sub_queries" in _mspec and isinstance(_mspec["sub_queries"], list):
+                                _mfixed = []
+                                _mchanged = False
+                                for _mitem in _mspec["sub_queries"]:
+                                    if isinstance(_mitem, str):
+                                        try:
+                                            _mdecoded = json.loads(_mitem)
+                                            if isinstance(_mdecoded, list):
+                                                _mfixed.extend(_mdecoded)
+                                            elif isinstance(_mdecoded, dict):
+                                                _mfixed.append(_mdecoded)
+                                            else:
+                                                _mfixed.append(_mitem)
+                                            _mchanged = True
+                                        except (json.JSONDecodeError, ValueError):
+                                            _mfixed.append(_mitem)
+                                    else:
+                                        _mfixed.append(_mitem)
+                                if _mchanged:
+                                    _mspec["sub_queries"] = _mfixed
+                                    raw_q = json.dumps(_mspec)
+                        except (json.JSONDecodeError, ValueError):
+                            pass
                     dbs = arguments.get("databases")
                     qr = await self._engine.query(raw_q, dbs, self._session_id, row_limit=1_000)
                     if "error" in qr:
@@ -1758,7 +1785,7 @@ class TogetherAgent(OpenAIAgent):
                     await asyncio.sleep(wait)
                     continue
 
-                if status in (500, 503) and attempt < max_retries - 1:
+                if status in (500, 502, 503) and attempt < max_retries - 1:
                     wait = min(self._RETRY_503_BASE * (2 ** attempt), self._RETRY_MAX_WAIT)
                     log.warning(
                         "[t%d] → %d server error — sleeping %.0fs (attempt %d/%d)",
