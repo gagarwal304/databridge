@@ -343,6 +343,58 @@ DataBridge is built to be measured. We run against DataAgentBench on every relea
 
 Reproducible eval scripts are in `/benchmark`. See [TESTING.md](TESTING.md) for full instructions.
 
+### Running the Benchmark
+
+**1. Clone DataAgentBench**
+
+```bash
+git clone https://github.com/ucbepic/DataAgentBench.git
+```
+
+**2. Set your API key**
+
+```bash
+export TOGETHER_API_KEY=your_key   # or ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.
+```
+
+**3. Run a single dataset to verify setup**
+
+```bash
+databridge benchmark run \
+  --dab-root /path/to/DataAgentBench \
+  --provider together \
+  --model zai-org/GLM-5.2 \
+  --dataset bookreview
+```
+
+**4. Run all 12 official datasets (one run)**
+
+```bash
+databridge benchmark run \
+  --dab-root /path/to/DataAgentBench \
+  --provider together \
+  --model zai-org/GLM-5.2 \
+  --official \
+  --run 0
+```
+
+**5. Run all 5 trials for leaderboard submission**
+
+```bash
+for i in 0 1 2 3 4; do
+  databridge benchmark run \
+    --dab-root /path/to/DataAgentBench \
+    --provider together \
+    --model zai-org/GLM-5.2 \
+    --official \
+    --run $i
+done
+```
+
+Results are written incrementally to `benchmark/results/submission_{model}.json` — a crash mid-run won't lose completed queries. Re-running a specific `--run` index overwrites only that run's entries.
+
+Supported providers: `anthropic` · `openai` · `together` · `groq` · `kimi` · `ollama`
+
 ---
 
 ## Roadmap
