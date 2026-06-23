@@ -28,7 +28,7 @@ DataAgentBench tests agents on 54 realistic queries across 12 real-world dataset
 
 | System | DAB Pass@1 |
 |---|---|
-| **DataBridge + GLM-5.2** | **TBD%** |
+| **DataBridge + GLM-5.2** | **61.37%%** |
 | MinusX + Claude Sonnet 4.6 + GPT-5.5-mini + Claude Haiku 4.5 | 65.2% |
 | Altimate Code + GPT-5.5 + Claude Sonnet 4.6 | 63.1% |
 | Spacedock (Recce) + Claude Opus 4.8 | 67.2% |
@@ -332,7 +332,7 @@ DataBridge is built to be measured. We run against DataAgentBench on every relea
 
 | System | DAB Pass@1 |
 |---|---|
-| **DataBridge + GLM-5.2** | **TBD%** |
+| **DataBridge + GLM-5.2** | **61.37%** |
 | MinusX + Claude Sonnet 4.6 + GPT-5.5-mini + Claude Haiku 4.5 | 65.2% |
 | Altimate Code + GPT-5.5 + Claude Sonnet 4.6 | 63.1% |
 | Spacedock (Recce) + Claude Opus 4.8 | 67.2% |
